@@ -74,13 +74,14 @@
  * filed number and 0x02.*/
 #define MESURE_FIELDS \
 
-const uint16_t fields[8] = {0xc402, 0xc502, 0xc602, 0xc702, 0xc802, 0xc902, 0xca02, 0xcb02};
+const uint16_t fields[8] = {0x02c4, 0x02c5, 0x02c6, 0x02c7, 0x02c8, 0x02c9, 0x02ca, 0x02cb};
 
 struct dyn_exposure {
   int configured;
  // uint16_t fields[8] = MESURE_FIELDS;
 //  uint16_t fields[8];
   uint8_t results[16];
+  int exp_state;
   int fd;
   struct uvc_xu_control_query xu_set;
   struct uvc_xu_control_query xu_get;
@@ -112,7 +113,7 @@ void set_exposure(int fd, int exp) {
   if (ctrl.value != 1) {
     ctrl.value = 1;
     xioctl(fd, VIDIOC_S_CTRL, &ctrl);
-    printf ("Setting manual exposure\n", ctrl.value);
+    printf ("Setting manual exposure\n");
   }
 
   ctrl.id = V4L2_CID_EXPOSURE_ABSOLUTE;
@@ -136,7 +137,7 @@ void set_exposure(int fd, int exp) {
 int map_xu(int fd)
 {
   struct uvc_xu_control_mapping xu_map = { 0 };
-  int ret, i;
+  int ret;
   uint8_t uuid[16] = UVC_XU_GUID;
   /* same for all */
   memcpy(xu_map.entity, uuid, sizeof(xu_map.entity));
@@ -165,6 +166,7 @@ int map_xu(int fd)
     printf ("%s:%i oops, some thing wrong(%i)\n", __func__, __LINE__, ret);
     return ret;
   }
+  return 0;
 }
 
 void check_point (int fd)
@@ -194,12 +196,10 @@ void init_xu(struct dyn_exposure *priv)
 
 void get_xu_fileds(struct dyn_exposure *priv)
 {
-  int i8, i16;
-  uint16_t *ptr;
+  int i8, i16; /* 8 - fileds, 16 - mesure squers */
   i16 = 0;
   for (i8 = 0; i8 < 8; i8++)
   {
-    printf ("%i .. 0x%02x\n", i8, fields[i8]);
     priv->xu_set.data = (unsigned char*)&fields[i8];
     xioctl(priv->fd, UVCIOC_CTRL_QUERY, (void *)&priv->xu_set);
     
@@ -209,55 +209,51 @@ void get_xu_fileds(struct dyn_exposure *priv)
   }
 }
 
-int main(void) {
+void process_fields (struct dyn_exposure *priv)
+{
+  int a, i16, r;
+  r = a = 0;
+  for (i16 = 0; i16 < 16; i16++)
+  {
+    if (priv->results[i16] < 0x30)
+      r -= 1; // underexposed
+    else if (priv->results[i16] > 0x60)
+      r += 2; // over exposed
+    else
+      r += 1; // ok
 
+    printf("| 0x%02x ", priv->results[i16]);
+    if (a < 3)
+      a++;
+    else {
+      a = 0;
+      printf("|\n");
+    }
+  }
+
+  if (r > 18) {
+    printf ("over exposed\n");
+    set_exposure (priv->fd, 1);
+  } else if (r < 10) {
+    printf ("underexposed \n");
+    set_exposure (priv->fd, -1);
+  } else
+    printf ("ok\n");
+}
+
+
+int main(void) {
   int fd = open(DEVVIDEO, O_RDWR);
   assert(fd > 0);
-  {
-    int ret, i, t, z;
-    /* adresses of mesure points */
-    uint8_t points[8] = {0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xcb};
-    uint8_t set[2];
-    uint8_t mesure[16];
 
-    struct dyn_exposure priv;
-    priv.fd = fd;
-    init_xu (&priv);
-    get_xu_fileds (&priv); 
+  struct dyn_exposure priv;
+  priv.fd = fd;
+  init_xu (&priv);
+  get_xu_fileds (&priv); 
+  process_fields(&priv);
 
   //  map_xu(fd);
 
-
-return;
-    t = 0;
-    int r = 0;
-    for (i = 0; i < 4; i++)
-    {
-      for (z = 0; z < 4; z++)
-      {
-        if (mesure[t] < 0x30)
-          r -= 1; // underexposed
-        else if (mesure[t] > 0x60)
-          r += 2; // over exposed
-        else
-          r += 1; // ok
-          
-        
-        printf("| 0x%02x ", mesure[t]);
-        t++;
-      }
-      printf("|\n");
-    }
-      if (r > 18) {
-        printf ("over exposed\n");
-        set_exposure (fd, 1);
-      } else if (r < 10) {
-        printf ("underexposed \n");
-        set_exposure (fd, -1);
-      } else
-        printf ("ok");
-
-  }
   close(fd);
   return 0;
 }
