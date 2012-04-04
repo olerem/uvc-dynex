@@ -1,2 +1,2 @@
 all:
-        gcc dynex.c -o dynex -Wall -g -O2
+	gcc dynex.c -o dynex -Wall -ggdb

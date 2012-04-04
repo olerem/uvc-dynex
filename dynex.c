@@ -42,6 +42,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
@@ -81,8 +82,8 @@ struct dyn_exposure {
 //  uint16_t fields[8];
   uint8_t results[16];
   int fd;
-  struct uvc_xu_control_query xu_s;
-  struct uvc_xu_control_query xu_g;
+  struct uvc_xu_control_query xu_set;
+  struct uvc_xu_control_query xu_get;
 };
 
 int xioctl(int fd, int request, void *arg) {
@@ -178,16 +179,16 @@ void check_point (int fd)
 void init_xu(struct dyn_exposure *priv)
 {
   /* prepare set_ struct */
-  priv->xu_s.unit = UVC_UID_LOGITECH_USER_HW_CONTROL;
-  priv->xu_s.selector = XU_CS_MESURE_FIELD;
-  priv->xu_s.query = UVC_SET_CUR;
-  priv->xu_s.size = 2;
+  priv->xu_set.unit = UVC_UID_LOGITECH_USER_HW_CONTROL;
+  priv->xu_set.selector = XU_CS_MESURE_FIELD;
+  priv->xu_set.query = UVC_SET_CUR;
+  priv->xu_set.size = 2;
 
   /* prepare get struct */
-  priv->xu_g.unit = UVC_UID_LOGITECH_USER_HW_CONTROL;
-  priv->xu_g.selector = XU_CS_MESURE_FIELD_RET;
-  priv->xu_g.query = UVC_GET_CUR;
-  priv->xu_g.size = 2;
+  priv->xu_get.unit = UVC_UID_LOGITECH_USER_HW_CONTROL;
+  priv->xu_get.selector = XU_CS_MESURE_FIELD_RET;
+  priv->xu_get.query = UVC_GET_CUR;
+  priv->xu_get.size = 2;
 
 }
 
@@ -199,11 +200,11 @@ void get_xu_fileds(struct dyn_exposure *priv)
   for (i8 = 0; i8 < 8; i8++)
   {
     printf ("%i .. 0x%02x\n", i8, fields[i8]);
-    priv->xu_g.data = (unsigned char*)&fields[i8];
-    xioctl(priv->fd, UVCIOC_CTRL_QUERY, (void *)&priv->xu_s);
+    priv->xu_set.data = (unsigned char*)&fields[i8];
+    xioctl(priv->fd, UVCIOC_CTRL_QUERY, (void *)&priv->xu_set);
     
-    priv->xu_g.data = (unsigned char*)&priv->results[i16];
-    xioctl(priv->fd, UVCIOC_CTRL_QUERY, (void *)&priv->xu_g);
+    priv->xu_get.data = (unsigned char*)&priv->results[i16];
+    xioctl(priv->fd, UVCIOC_CTRL_QUERY, (void *)&priv->xu_get);
     i16 += 2;
   }
 }
