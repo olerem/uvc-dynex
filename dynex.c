@@ -74,13 +74,26 @@
  * filed number and 0x02.*/
 #define MESURE_FIELDS \
 
-const uint16_t fields[8] = {0x02c4, 0x02c5, 0x02c6, 0x02c7, 0x02c8, 0x02c9, 0x02ca, 0x02cb};
+const uint16_t logitech_field_2x4[8] = {
+  0x02c4, 0x02c5,
+  0x02c6, 0x02c7,
+  0x02c8, 0x02c9,
+  0x02ca, 0x02cb};
+
+const uint16_t logitech_field_2x2[4] = {
+  0x02c6, 0x02c7,
+  0x02c8, 0x02c9,};
 
 struct dyn_exposure {
   int configured;
- // uint16_t fields[8] = MESURE_FIELDS;
-//  uint16_t fields[8];
+  const uint16_t *fields;
+  unsigned int fields_count;
+  unsigned int width;
+  unsigned int width_offset;
+  unsigned int height;
   uint8_t results[16];
+  unsigned int result_size;
+  unsigned int result_width;
   int exp_state;
   int fd;
   struct uvc_xu_control_query xu_set;
@@ -119,7 +132,7 @@ void set_exposure(int fd, int exp) {
   ctrl.id = V4L2_CID_EXPOSURE_ABSOLUTE;
   ctrl.value = 0; 
   xioctl(fd, VIDIOC_G_CTRL, &ctrl);
-  printf (" --- %02x\n", ctrl.value);
+  printf (" --- %03u\n", ctrl.value);
   /* */
   if (exp < 0) {
     ctrl.value -= EXPOSURE_STEP;
@@ -133,6 +146,7 @@ void set_exposure(int fd, int exp) {
     xioctl(fd, VIDIOC_S_CTRL, &ctrl);
   }
 }
+
 
 int map_xu(int fd)
 {
@@ -178,6 +192,40 @@ void check_point (int fd)
   printf (" --- %x\n", ctrl.value);
 }
 
+void config_loigitech_4x4 (struct dyn_exposure *priv)
+{
+  priv->fields = (const uint16_t *)&logitech_field_2x4;
+  priv->fields_count = sizeof(logitech_field_2x4)/sizeof(uint16_t);
+  priv->width = 4;
+  priv->width_offset = 0;
+  priv->height = 4;
+  priv->result_size = priv->fields_count * 2;
+  priv->result_width = priv->result_size / priv->height;
+}
+
+void config_loigitech_4x2 (struct dyn_exposure *priv)
+{
+  priv->fields = (const uint16_t *)&logitech_field_2x2;
+  priv->fields_count = sizeof(logitech_field_2x2)/sizeof(uint16_t);
+  priv->width = 4;
+  priv->width_offset = 0;
+  priv->height = 2;
+  priv->result_size = priv->fields_count * 2;
+  priv->result_width = priv->result_size / priv->height;
+}
+
+void config_loigitech_2x2 (struct dyn_exposure *priv)
+{
+  priv->fields = (const uint16_t *)&logitech_field_2x2;
+  priv->fields_count = sizeof(logitech_field_2x2)/sizeof(uint16_t);
+  priv->width = 2;
+  priv->width_offset = 1;
+  priv->height = 2;
+  priv->result_size = priv->fields_count * 2;
+  priv->result_width = priv->result_size / priv->height;
+}
+
+
 void init_xu(struct dyn_exposure *priv)
 {
   /* prepare set_ struct */
@@ -200,7 +248,7 @@ void get_xu_fileds(struct dyn_exposure *priv)
   i16 = 0;
   for (i8 = 0; i8 < 8; i8++)
   {
-    priv->xu_set.data = (unsigned char*)&fields[i8];
+    priv->xu_set.data = (unsigned char*)&priv->fields[i8];
     xioctl(priv->fd, UVCIOC_CTRL_QUERY, (void *)&priv->xu_set);
     
     priv->xu_get.data = (unsigned char*)&priv->results[i16];
@@ -211,24 +259,28 @@ void get_xu_fileds(struct dyn_exposure *priv)
 
 void process_fields (struct dyn_exposure *priv)
 {
-  int a, i16, r;
-  r = a = 0;
-  for (i16 = 0; i16 < 16; i16++)
-  {
-    if (priv->results[i16] < 0x30)
-      r -= 1; // underexposed
-    else if (priv->results[i16] > 0x60)
-      r += 2; // over exposed
-    else
-      r += 1; // ok
+  int r;
+  unsigned int a, b, c;
+  a = r = 0;
 
-    printf("| 0x%02x ", priv->results[i16]);
-    if (a < 3)
-      a++;
-    else {
-      a = 0;
-      printf("|\n");
+  while (a < priv->result_size)
+  {
+    b = a + priv->width_offset;
+    c = b + priv->width;
+    while (b < c)
+    {
+      if (priv->results[b] < 0x30)
+        r -= 1; // underexposed
+      else if (priv->results[b] > 0x60)
+        r += 2; // over exposed
+      else
+        r += 1; // ok
+
+      printf("| (%u)%03u ", b, priv->results[b]);
+      b++;
     }
+    printf("|\n");
+    a += priv->result_width;
   }
 
   if (r > 18) {
@@ -249,6 +301,9 @@ int main(void) {
   struct dyn_exposure priv;
   priv.fd = fd;
   init_xu (&priv);
+  //config_loigitech_4x4(&priv);
+  //config_loigitech_2x4(&priv);
+  config_loigitech_2x2(&priv);
   get_xu_fileds (&priv); 
   process_fields(&priv);
 
