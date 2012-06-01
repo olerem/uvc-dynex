@@ -53,13 +53,11 @@
 #define EXPOSURE_STEP 5
 #define MIN_EXPOSURE 50
 #define MAX_EXPOSURE 300
-#define NAME1 "point"
-#define NAME2 "point_ret"
 #define UVC_UID_LOGITECH_USER_HW_CONTROL 10
 
 /* This is the GUID of XU repsoinble for mesuring
  * 82066163-7050-ab49-b8cc-b3855e8d2252.
- */
+ * currently not used. */
 #define UVC_XU_GUID \
   {0x82, 0x06, 0x61, 0x63, 0x70, 0x50, 0xab, 0x49, \
    0xb8, 0xcc, 0xb3, 0x85, 0x5e, 0x8d, 0x22, 0x52}
@@ -100,7 +98,7 @@ struct dyn_exposure {
   struct uvc_xu_control_query xu_get;
 };
 
-int xioctl(int fd, int request, void *arg) {
+static int xioctl(int fd, int request, void *arg) {
 
   int ret = ioctl(fd, request, arg);
   if (ret == -1) {
@@ -114,7 +112,7 @@ int xioctl(int fd, int request, void *arg) {
   return ret;
 }
 
-void set_exposure(int fd, int exp) {
+static void set_exposure(int fd, int exp) {
   struct v4l2_control ctrl;
 
   /* check if we use manual exposure
@@ -147,52 +145,7 @@ void set_exposure(int fd, int exp) {
   }
 }
 
-
-int map_xu(int fd)
-{
-  struct uvc_xu_control_mapping xu_map = { 0 };
-  int ret;
-  uint8_t uuid[16] = UVC_XU_GUID;
-  /* same for all */
-  memcpy(xu_map.entity, uuid, sizeof(xu_map.entity));
-  xu_map.v4l2_type = V4L2_CTRL_TYPE_INTEGER;
-  xu_map.offset = 0;
-  xu_map.data_type = UVC_CTRL_DATA_TYPE_UNSIGNED;
-
-  /* field setter */
-  strncpy((char *)xu_map.name, NAME1, sizeof(xu_map.name));
-  xu_map.id = V4L2_CID_PRIVATE_BASE;
-  xu_map.size = 2;
-  xu_map.selector = XU_CS_MESURE_FIELD;
-  ret = xioctl(fd, UVCIOC_CTRL_MAP, &xu_map);
-  if (ret != 0 && ret != EEXIST) {
-    printf ("%s:%i oops, some thing wrong(%i)\n", __func__, __LINE__, ret);
-    return ret;
-  }
-
-  /* field getter */
-  strncpy((char *)xu_map.name, NAME2, sizeof(xu_map.name));
-  xu_map.id = V4L2_CID_PRIVATE_BASE + 1;
-  xu_map.size = 2;
-  xu_map.selector = XU_CS_MESURE_FIELD_RET;
-  ret = xioctl(fd, UVCIOC_CTRL_MAP, &xu_map);
-  if (ret != 0 && ret != EEXIST) {
-    printf ("%s:%i oops, some thing wrong(%i)\n", __func__, __LINE__, ret);
-    return ret;
-  }
-  return 0;
-}
-
-void check_point (int fd)
-{
-  struct v4l2_control ctrl;
-  ctrl.id = V4L2_CID_PRIVATE_BASE + 1;
-  ctrl.value = 0;
-  xioctl(fd, VIDIOC_G_CTRL, &ctrl);
-  printf (" --- %x\n", ctrl.value);
-}
-
-void config_loigitech_4x4 (struct dyn_exposure *priv)
+static void config_loigitech_4x4 (struct dyn_exposure *priv)
 {
   priv->fields = (const uint16_t *)&logitech_field_2x4;
   priv->fields_count = sizeof(logitech_field_2x4)/sizeof(uint16_t);
@@ -203,7 +156,7 @@ void config_loigitech_4x4 (struct dyn_exposure *priv)
   priv->result_width = priv->result_size / priv->height;
 }
 
-void config_loigitech_4x2 (struct dyn_exposure *priv)
+static void config_loigitech_4x2 (struct dyn_exposure *priv)
 {
   priv->fields = (const uint16_t *)&logitech_field_2x2;
   priv->fields_count = sizeof(logitech_field_2x2)/sizeof(uint16_t);
@@ -214,7 +167,7 @@ void config_loigitech_4x2 (struct dyn_exposure *priv)
   priv->result_width = priv->result_size / priv->height;
 }
 
-void config_loigitech_2x2 (struct dyn_exposure *priv)
+static void config_loigitech_2x2 (struct dyn_exposure *priv)
 {
   priv->fields = (const uint16_t *)&logitech_field_2x2;
   priv->fields_count = sizeof(logitech_field_2x2)/sizeof(uint16_t);
@@ -226,7 +179,7 @@ void config_loigitech_2x2 (struct dyn_exposure *priv)
 }
 
 
-void init_xu(struct dyn_exposure *priv)
+static void init_xu(struct dyn_exposure *priv)
 {
   /* prepare set_ struct */
   priv->xu_set.unit = UVC_UID_LOGITECH_USER_HW_CONTROL;
@@ -242,7 +195,7 @@ void init_xu(struct dyn_exposure *priv)
 
 }
 
-void get_xu_fileds(struct dyn_exposure *priv)
+static void get_xu_fileds(struct dyn_exposure *priv)
 {
   int i8, i16; /* 8 - fileds, 16 - mesure squers */
   i16 = 0;
@@ -257,7 +210,9 @@ void get_xu_fileds(struct dyn_exposure *priv)
   }
 }
 
-void process_fields (struct dyn_exposure *priv)
+/* Easy and naiv precessor.
+ */
+static void process_fields (struct dyn_exposure *priv)
 {
   int r;
   unsigned int a, b, c;
@@ -269,14 +224,14 @@ void process_fields (struct dyn_exposure *priv)
     c = b + priv->width;
     while (b < c)
     {
-      if (priv->results[b] < 0x30)
+      if (priv->results[b] < 0x30) {
         r -= 1; // underexposed
-      else if (priv->results[b] > 0x60)
+      } else if (priv->results[b] > 0x60)
         r += 2; // over exposed
       else
         r += 1; // ok
 
-      printf("| (%u)%03u ", b, priv->results[b]);
+      printf("| (%02u)%03u ", b, priv->results[b]);
       b++;
     }
     printf("|\n");
@@ -301,13 +256,17 @@ int main(void) {
   struct dyn_exposure priv;
   priv.fd = fd;
   init_xu (&priv);
-  //config_loigitech_4x4(&priv);
+  // we can choise differnt configuration
+  // to mesure light.
+  config_loigitech_4x4(&priv);
   //config_loigitech_2x4(&priv);
-  config_loigitech_2x2(&priv);
-  get_xu_fileds (&priv); 
-  process_fields(&priv);
-
-  //  map_xu(fd);
+  //config_loigitech_2x2(&priv);
+  for(;;)
+  {
+    get_xu_fileds (&priv); 
+    process_fields(&priv);
+    usleep(500000);
+  }
 
   close(fd);
   return 0;
